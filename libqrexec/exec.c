@@ -197,22 +197,33 @@ out:
 
 /* A parsed, mostly-validated RPC command. */
 struct qrexec_parsed_command {
-    /* NULL if and only if we are the fork server.  Otherwise, a NUL-terminated string. */
-    const char *const username;
-    /* Command line.  Never NULL.  NUL-terminated. Does not include "QUBESRPC ". */
-    char *const command;
-    /* Service descriptor.  Identical to `command` unless the "nogui:" prefix is present, in which case it points
-     * after the colon.  Always points to the start of the service name. */
+    /* Username, or NULL when command parsed without strip_username option. */
+    const char *username;
+
+    /* Command without the leading username: either a regular command, or
+     * "QUBESRPC ...". Can also start with "nogui:".
+     */
+    char *cmd;
+
+    /* Pointer to the service descriptor part, after the "QUBESRPC "
+     * prefix. Not null-terminated, use service_descriptor_length.
+     * NULL if this is a regular command.
+     */
     const char *service_descriptor;
-    /* Size of service_descriptor (the service name + argument).  Guaranteed to be <= MAX_SERVICE_NAME_LEN. */
-    size_t const service_descriptor_length;
+    /* Size of service_descriptor (the service name + argument).  Guaranteed to
+     * be <= MAX_SERVICE_NAME_LEN.
+     * 0 if this is a regular command.
+     */
+    size_t service_descriptor_length;
 };
 
-static int execute_parsed_qubes_rpc_command(const struct qrexec_parsed_command *const command, int *const pid, int *const stdin_fd, int *const stdout_fd, int *const stderr_fd, struct buffer *stdin_buffer);
-
-static const char *skip_nogui(const char *cmdline) {
-    return strncmp(cmdline, NOGUI_CMD_PREFIX, NOGUI_CMD_PREFIX_LEN) ? cmdline : cmdline + NOGUI_CMD_PREFIX_LEN;
-}
+static int parse_qubes_rpc_command(char *cmdline, bool strip_username,
+                                   struct qrexec_parsed_command *command);
+static int execute_parsed_qubes_rpc_command(
+    struct qrexec_parsed_command *const command,
+    int *const pid,
+    int *const stdin_fd,
+    int *const stdout_fd, int *const stderr_fd, struct buffer *stdin_buffer);
 
 /*
   Find a file in the ':'-delimited list of paths given in service_path.
@@ -254,55 +265,81 @@ static int find_qrexec_service_file(
 }
 
 int execute_qubes_rpc_command(char *cmdline, int *pid, int *stdin_fd,
-        int *stdout_fd, int *stderr_fd, bool strip_username, struct buffer *stdin_buffer) {
-    const char *service_descriptor;
-    char *realcmd;
-    size_t service_descriptor_length;
-    const char *const username = strip_username ? cmdline : NULL;
-    {
-        if (strip_username) {
-            realcmd = strchr(cmdline, ':');
-            if (!realcmd) {
-                fputs("Bad command from dom0: no colon\n", stderr);
-                abort();
-            }
-            *realcmd++ = '\0';
-        } else {
-            realcmd = cmdline;
-        }
-        // Get the part of the command line that will be executed.
-        const char *const start_cmdline = skip_nogui(realcmd);
-        if (strncmp(start_cmdline, RPC_REQUEST_COMMAND " ", RPC_REQUEST_COMMAND_LEN + 1) != 0) {
-            // Legacy qrexec behavior: spawn shell directly.
-            return do_fork_exec(username, realcmd, pid, stdin_fd, stdout_fd, stderr_fd);
-        } else {
-            // Proper Qubes RPC call
-            service_descriptor = start_cmdline + RPC_REQUEST_COMMAND_LEN + 1;
-        }
-    }
-    const char *const end_service_descriptor = strchr(service_descriptor, ' ');
-    if (!end_service_descriptor) {
-        fputs("Bad command from dom0: no remote domain\n", stderr);
+                              int *stdout_fd, int *stderr_fd,
+                              bool strip_username,
+                              struct buffer *stdin_buffer) {
+    struct qrexec_parsed_command command;
+
+    if (parse_qubes_rpc_command(cmdline, strip_username, &command) < 0)
         abort();
-    }
-    service_descriptor_length = (size_t)(end_service_descriptor - service_descriptor);
-    /* Check that the path is of a valid length */
-    if (service_descriptor_length > MAX_SERVICE_NAME_LEN) {
-        fprintf(stderr, "Bad command from dom0: absurdly long command (length %zu)\n", service_descriptor_length);
-        abort();
-    }
-    const struct qrexec_parsed_command command = {
-       .username = username,
-       .command = realcmd,
-       .service_descriptor = service_descriptor,
-       .service_descriptor_length = service_descriptor_length,
-    };
+
+    if (!command.service_descriptor)
+        // Legacy qrexec behavior: spawn shell directly.
+        return do_fork_exec(command.username, command.cmd,
+                            pid, stdin_fd, stdout_fd, stderr_fd);
+
     return execute_parsed_qubes_rpc_command(&command, pid, stdin_fd, stdout_fd, stderr_fd, stdin_buffer);
 }
 
+static int parse_qubes_rpc_command(char *cmdline, bool strip_username,
+                                   struct qrexec_parsed_command *command) {
+
+    char *cmd;
+    if (strip_username) {
+        cmd = strchr(cmdline, ':');
+        if (!cmd) {
+            fputs("Bad command from dom0: no colon\n", stderr);
+            return -1;
+        }
+        *cmd++ = '\0';
+        command->username = cmdline;
+        command->cmd = cmd;
+    } else {
+        command->username = NULL;
+        cmd = command->cmd = cmdline;
+    }
+
+    /* Skip 'nogui:' prefix */
+    if (strncmp(cmd, NOGUI_CMD_PREFIX, NOGUI_CMD_PREFIX_LEN) == 0)
+        cmd += NOGUI_CMD_PREFIX_LEN;
+
+    if (strncmp(cmd, RPC_REQUEST_COMMAND " ",
+                RPC_REQUEST_COMMAND_LEN + 1) != 0) {
+        /* Regular command */
+        command->service_descriptor = NULL;
+        command->service_descriptor_length = 0;
+        return 0;
+    }
+
+    /* Proper Qubes RPC call */
+    command->service_descriptor = cmd + RPC_REQUEST_COMMAND_LEN + 1;
+
+    const char *end_service_descriptor =
+        strchr(command->service_descriptor, ' ');
+    if (!end_service_descriptor) {
+        fputs("Bad command from dom0: no remote domain\n", stderr);
+        return -1;
+    }
+    command->service_descriptor_length =
+        (size_t) (end_service_descriptor - command->service_descriptor);
+
+    /* Check that the path is of a valid length */
+    if (command->service_descriptor_length > MAX_SERVICE_NAME_LEN) {
+        fprintf(stderr,
+                "Bad command from dom0: absurdly long command (length %zu)\n",
+                command->service_descriptor_length);
+        return -1;
+    }
+
+    return 0;
+}
+
 static int execute_parsed_qubes_rpc_command(
-        const struct qrexec_parsed_command *const command, int *const pid, int *const stdin_fd,
-        int *const stdout_fd, int *const stderr_fd, struct buffer *stdin_buffer) {
+    struct qrexec_parsed_command *const command,
+    int *const pid,
+    int *const stdin_fd,
+    int *const stdout_fd, int *const stderr_fd, struct buffer *stdin_buffer) {
+
     char const *const delimiter = memchr(command->service_descriptor, '+', command->service_descriptor_length);
     size_t const service_length = delimiter ?
         (size_t)(delimiter - command->service_descriptor) : command->service_descriptor_length;
@@ -379,7 +416,7 @@ static int execute_parsed_qubes_rpc_command(
           Note that this delegates to qubes-rpc-multiplexer, which, for the
           moment, searches for the right file again.
         */
-        return do_fork_exec(command->username, command->command,
+        return do_fork_exec(command->username, command->cmd,
                             pid, stdin_fd, stdout_fd, stderr_fd);
     }
 
