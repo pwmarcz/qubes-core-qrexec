@@ -256,15 +256,17 @@ class TestAgent(TestAgentBase):
 @unittest.skipIf(os.environ.get('SKIP_SOCKET_TESTS'),
                  'socket tests not set up')
 class TestAgentExecQubesRpc(TestAgentBase):
-    def execute_qubesrpc(self, service: str, src_domain_name: str):
+    def execute_qubesrpc(self, service: str, src_domain_name: str, nogui=False):
         self.start_agent()
 
         dom0 = self.connect_dom0()
         dom0.handshake()
 
+        prefix = 'nogui:' if nogui else ''
+
         user = getpass.getuser()
-        cmdline = '{}:QUBESRPC {} {}\0'.format(
-            user, service, src_domain_name).encode('ascii')
+        cmdline = '{}:{}QUBESRPC {} {}\0'.format(
+            user, prefix, service, src_domain_name).encode('ascii')
 
         dom0.send_message(
             qrexec.MSG_EXEC_CMDLINE,
@@ -287,6 +289,24 @@ class TestAgentExecQubesRpc(TestAgentBase):
 echo "arg: $1, remote domain: $QREXEC_REMOTE_DOMAIN"
 ''')
         target = self.execute_qubesrpc('qubes.Service+arg', 'domX')
+        target.send_message(qrexec.MSG_DATA_STDIN, b'')
+        messages = target.recv_all_messages()
+        self.assertListEqual(util.sort_messages(messages), [
+            (qrexec.MSG_DATA_STDOUT, b'arg: arg, remote domain: domX\n'),
+            (qrexec.MSG_DATA_STDOUT, b''),
+            (qrexec.MSG_DATA_STDERR, b''),
+            (qrexec.MSG_DATA_EXIT_CODE, b'\0\0\0\0')
+        ])
+
+    def test_exec_service_nogui(self):
+        # We do not test the "wait for GUI" path yet (that would require
+        # creating a service config), but check if 'nogui:' prefix is
+        # recognized correctly.
+        self.make_executable_service('rpc', 'qubes.Service', '''\
+#!/bin/sh
+echo "arg: $1, remote domain: $QREXEC_REMOTE_DOMAIN"
+''')
+        target = self.execute_qubesrpc('qubes.Service+arg', 'domX', nogui=True)
         target.send_message(qrexec.MSG_DATA_STDIN, b'')
         messages = target.recv_all_messages()
         self.assertListEqual(util.sort_messages(messages), [
