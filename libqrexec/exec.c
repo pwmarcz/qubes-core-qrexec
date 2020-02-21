@@ -195,30 +195,6 @@ out:
     return result;
 }
 
-/* A parsed, mostly-validated RPC command. */
-struct qrexec_parsed_command {
-    /* Username, or NULL when command parsed without strip_username option. */
-    const char *username;
-
-    /* Command without the leading username: either a regular command, or
-     * "QUBESRPC ...". Can also start with "nogui:".
-     */
-    char *cmd;
-
-    /* Pointer to the service descriptor part, after the "QUBESRPC "
-     * prefix. Not null-terminated, use service_descriptor_length.
-     * NULL if this is a regular command.
-     */
-    const char *service_descriptor;
-    /* Size of service_descriptor (the service name + argument).  Guaranteed to
-     * be <= MAX_SERVICE_NAME_LEN.
-     * 0 if this is a regular command.
-     */
-    size_t service_descriptor_length;
-};
-
-static int parse_qubes_rpc_command(char *cmdline, bool strip_username,
-                                   struct qrexec_parsed_command *command);
 static int execute_parsed_qubes_rpc_command(
     struct qrexec_parsed_command *const command,
     int *const pid,
@@ -281,7 +257,7 @@ int execute_qubes_rpc_command(char *cmdline, int *pid, int *stdin_fd,
     return execute_parsed_qubes_rpc_command(&command, pid, stdin_fd, stdout_fd, stderr_fd, stdin_buffer);
 }
 
-static int parse_qubes_rpc_command(char *cmdline, bool strip_username,
+int parse_qubes_rpc_command(char *cmdline, bool strip_username,
                                    struct qrexec_parsed_command *command) {
 
     char *cmd;
