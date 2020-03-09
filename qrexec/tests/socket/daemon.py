@@ -588,7 +588,7 @@ sleep 1
         ])
 
     def test_buffer_stdin(self):
-        # Test to trigger WRITE_STDIN_BUFFERED.
+        # Test to trigger WRITE_BUFFERED.
 
         # Values carefully selected to block stdin pipe but not block vchan.
         data_size = 256 * 1024

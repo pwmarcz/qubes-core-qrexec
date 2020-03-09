@@ -36,9 +36,9 @@ struct buffer {
 };
 
 /* return codes for buffered writes */
-#define WRITE_STDIN_OK        0 /* all written */
-#define WRITE_STDIN_BUFFERED  1 /* something still in the buffer */
-#define WRITE_STDIN_ERROR     2 /* write error, errno set */
+#define WRITE_OK        0 /* all written */
+#define WRITE_BUFFERED  1 /* something still in the buffer */
+#define WRITE_ERROR     2 /* write error, errno set */
 
 typedef void (do_exec_t)(char *cmdline, const char *user);
 void register_exec_func(do_exec_t *func);
@@ -88,6 +88,13 @@ int write_all(int fd, const void *buf, int size);
 void fix_fds(int fdin, int fdout, int fderr);
 void set_nonblock(int fd);
 void set_block(int fd);
+
+/* Flush remaining data from buffer to vchan. Returns WRITE_* */
+int flush_vchan_data(libvchan_t *vchan, struct buffer *buffer);
+/* Write a message to vchan, writing back remaining data to buffer.
+   Returns WRITE_* */
+int write_vchan_msg(libvchan_t *vchan, struct msg_header *hdr, const void *data,
+                    struct buffer *buffer);
 
 int get_server_socket(const char *);
 int do_accept(int s);
@@ -144,6 +151,7 @@ int handle_remote_data(
  */
 int handle_input(
     libvchan_t *vchan, int fd, int msg_type,
+    struct buffer *vchan_out_buf,
     int data_protocol_version);
 
 int send_exit_code(libvchan_t *vchan, int status);

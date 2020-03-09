@@ -41,14 +41,14 @@ int flush_client_data(int fd, struct buffer *buffer)
     for (;;) {
         len = buffer_len(buffer);
         if (!len) {
-            return WRITE_STDIN_OK;
+            return WRITE_OK;
         }
         ret = write(fd, buffer_data(buffer), len);
         if (ret == -1) {
             if (errno != EAGAIN)
-                return WRITE_STDIN_ERROR;
+                return WRITE_ERROR;
             else
-                return WRITE_STDIN_BUFFERED;
+                return WRITE_BUFFERED;
         }
         // we previously called buffer_remove(buffer, len)
         // it will be wrong if we change MAX_DATA_CHUNK to something large
@@ -69,7 +69,7 @@ int write_stdin(int fd, const char *data, int len, struct buffer *buffer)
 
     if (buffer_len(buffer)) {
         buffer_append(buffer, data, len);
-        return WRITE_STDIN_BUFFERED;
+        return WRITE_BUFFERED;
     }
     while (written < len) {
         ret = write(fd, data + written, len - written);
@@ -79,16 +79,16 @@ int write_stdin(int fd, const char *data, int len, struct buffer *buffer)
         }
         if (ret == -1) {
             if (errno != EAGAIN)
-                return WRITE_STDIN_ERROR;
+                return WRITE_ERROR;
 
             buffer_append(buffer, data + written,
                     len - written);
 
-            return WRITE_STDIN_BUFFERED;
+            return WRITE_BUFFERED;
         }
         written += ret;
     }
-    return WRITE_STDIN_OK;
+    return WRITE_OK;
 }
 
 /* 

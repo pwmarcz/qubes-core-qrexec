@@ -43,11 +43,11 @@ int handle_remote_data(
 
     /* do not receive any data if we have something already buffered */
     switch (flush_client_data(stdin_fd, stdin_buf)) {
-        case WRITE_STDIN_OK:
+        case WRITE_OK:
             break;
-        case WRITE_STDIN_BUFFERED:
+        case WRITE_BUFFERED:
             return REMOTE_OK;
-        case WRITE_STDIN_ERROR:
+        case WRITE_ERROR:
             perror("write");
             return REMOTE_EOF;
     }
@@ -84,12 +84,12 @@ int handle_remote_data(
                     if (replace_chars_stdout)
                         do_replace_chars(buf, hdr.len);
                     switch (write_stdin(stdin_fd, buf, hdr.len, stdin_buf)) {
-                        case WRITE_STDIN_OK:
+                        case WRITE_OK:
                             break;
-                        case WRITE_STDIN_BUFFERED:
+                        case WRITE_BUFFERED:
                             rc = REMOTE_OK;
                             goto out;
-                        case WRITE_STDIN_ERROR:
+                        case WRITE_ERROR:
                             if (!(errno == EPIPE || errno == ECONNRESET)) {
                                 perror("write");
                             }
@@ -130,6 +130,7 @@ out:
 
 int handle_input(
     libvchan_t *vchan, int fd, int msg_type,
+    struct buffer *vchan_out_buf,
     int data_protocol_version)
 {
     const size_t max_len = max_data_chunk_size(data_protocol_version);
@@ -137,6 +138,17 @@ int handle_input(
     ssize_t len;
     struct msg_header hdr;
     int rc = REMOTE_ERROR;
+
+    /* do not receive any data if we have something already buffered */
+    switch (flush_vchan_data(vchan, vchan_out_buf)) {
+        case WRITE_OK:
+            break;
+        case WRITE_BUFFERED:
+            return REMOTE_OK;
+        case WRITE_ERROR:
+            perror("flush_vchan_data");
+            return REMOTE_ERROR;
+    }
 
     buf = malloc(max_len);
     if (!buf) {
@@ -146,11 +158,8 @@ int handle_input(
 
     static_assert(SSIZE_MAX >= INT_MAX, "can't happen on Linux");
     hdr.type = msg_type;
-    while (libvchan_buffer_space(vchan) > (int)sizeof(struct msg_header)) {
-        len = libvchan_buffer_space(vchan)-sizeof(struct msg_header);
-        if ((size_t)len > max_len)
-            len = max_len;
-        len = read(fd, buf, len);
+    while (libvchan_buffer_space(vchan) > 0) {
+        len = read(fd, buf, max_len);
         /* If the other side of the socket is a process that is already dead,
          * read from such socket could fail with ECONNRESET instead of
          * just 0. */
@@ -163,11 +172,16 @@ int handle_input(
             goto out;
         }
         hdr.len = (uint32_t)len;
-        if (libvchan_send(vchan, &hdr, sizeof(hdr)) < 0)
-            goto out;
 
-        if (len && !write_vchan_all(vchan, buf, len))
-            goto out;
+        switch (write_vchan_msg(vchan, &hdr, buf, vchan_out_buf)) {
+            case WRITE_OK:
+                break;
+            case WRITE_BUFFERED:
+                rc = (len == 0 ? REMOTE_EOF : REMOTE_OK);
+                goto out;
+            case WRITE_ERROR:
+                goto out;
+        }
 
         if (len == 0) {
             rc = REMOTE_EOF;

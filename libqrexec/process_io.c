@@ -116,6 +116,10 @@ int process_io(const struct process_io_request *req) {
     struct timespec zero_timeout = { 0, 0 };
     struct timespec normal_timeout = { 10, 0 };
 
+    struct buffer vchan_out_buf;
+
+    buffer_init(&vchan_out_buf);
+
     sigemptyset(&selectmask);
     sigaddset(&selectmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &selectmask, NULL);
@@ -147,7 +151,9 @@ int process_io(const struct process_io_request *req) {
         }
 
         /* if all done, exit the loop */
-        if (stdin_fd == -1 && stdout_fd == -1 && stderr_fd == -1) {
+        if (stdin_fd == -1 && stdout_fd == -1 && stderr_fd == -1 &&
+            !buffer_len(&vchan_out_buf)) {
+
             if (is_service) {
                 /* wait for local process, send exit code */
                 if (!local_pid || local_status >= 0) {
@@ -197,7 +203,7 @@ int process_io(const struct process_io_request *req) {
         FD_ZERO(&wrset);
         max_fd = -1;
         vchan_fd = libvchan_fd_for_select(vchan);
-        if (libvchan_buffer_space(vchan) > (int)sizeof(struct msg_header)) {
+        if (!buffer_len(&vchan_out_buf)) {
             if (stdout_fd >= 0) {
                 FD_SET(stdout_fd, &rdset);
                 if (stdout_fd > max_fd)
@@ -240,6 +246,10 @@ int process_io(const struct process_io_request *req) {
                 handle_vchan_error("wait");
         }
 
+        if (flush_vchan_data(vchan, &vchan_out_buf) == WRITE_ERROR) {
+            handle_vchan_error("flush_vchan_data");
+        }
+
         /* handle_remote_data will check if any data is available */
         switch (handle_remote_data(
                     vchan, stdin_fd,
@@ -269,6 +279,7 @@ int process_io(const struct process_io_request *req) {
         if (stdout_fd >= 0 && FD_ISSET(stdout_fd, &rdset)) {
             switch (handle_input(
                         vchan, stdout_fd, stdout_msg_type,
+                        &vchan_out_buf,
                         data_protocol_version)) {
                 case REMOTE_ERROR:
                     handle_vchan_error("send");
@@ -282,6 +293,7 @@ int process_io(const struct process_io_request *req) {
         if (stderr_fd >= 0 && FD_ISSET(stderr_fd, &rdset)) {
             switch (handle_input(
                         vchan, stderr_fd, MSG_DATA_STDERR,
+                        &vchan_out_buf,
                         data_protocol_version)) {
                 case REMOTE_ERROR:
                     handle_vchan_error("send");
@@ -310,6 +322,8 @@ int process_io(const struct process_io_request *req) {
         } else
             perror("waitpid");
     }
+
+    buffer_free(&vchan_out_buf);
 
     if (!is_service)
         return remote_status;

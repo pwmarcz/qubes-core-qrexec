@@ -27,6 +27,8 @@
 #include <sys/select.h>
 #include <libvchan.h>
 
+#include "libqrexec-utils.h"
+
 int wait_for_vchan_or_argfd_once(libvchan_t *ctrl, int max, fd_set * rdset, fd_set * wrset)
 {
     int vfd, ret;
@@ -111,4 +113,48 @@ int read_vchan_all(libvchan_t *vchan, void *data, size_t size) {
         pos += ret;
     }
     return 1;
+}
+
+int flush_vchan_data(libvchan_t *vchan, struct buffer *buffer) {
+    int ret;
+
+    if (buffer_len(buffer) == 0)
+        return WRITE_OK;
+
+    ret = libvchan_write(vchan, buffer_data(buffer), buffer_len(buffer));
+    if (ret < 0)
+        return WRITE_ERROR;
+
+    buffer_remove(buffer, ret);
+    return buffer_len(buffer) > 0 ? WRITE_BUFFERED : WRITE_OK;
+}
+
+static int write_vchan(libvchan_t *vchan, const void *data, size_t len,
+                struct buffer *buffer) {
+    int ret;
+
+    ret = libvchan_write(vchan, data, len);
+    if (ret < 0)
+        return WRITE_ERROR;
+
+    if (ret < (int) len) {
+        buffer_append(buffer, data + ret, len - ret);
+        return WRITE_BUFFERED;
+    }
+
+    return WRITE_OK;
+}
+
+int write_vchan_msg(libvchan_t *vchan, struct msg_header *hdr,
+                    const void *data, struct buffer *buffer) {
+    switch (write_vchan(vchan, hdr, sizeof(hdr), buffer)) {
+        case WRITE_ERROR:
+            return WRITE_ERROR;
+        case WRITE_BUFFERED:
+            buffer_append(buffer, data, hdr->len);
+            return WRITE_BUFFERED;
+        case WRITE_OK:
+            break;
+    }
+    return write_vchan(vchan, data, hdr->len, buffer);
 }
