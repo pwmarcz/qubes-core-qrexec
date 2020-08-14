@@ -201,7 +201,7 @@ class VMToken(str):
 
         # if user specified just qube name, use it directly
         if not (token.startswith('@') or token == '*'):
-            return super().__new__(cls, token)
+            return super().__new__(NamedVM, token)
 
         # token starts with @, we search for right subclass
         for exact, token_cls in cls.exacts.items():
@@ -272,7 +272,23 @@ class Source(VMToken):
     # pylint: disable=missing-docstring
     pass
 
-class _BaseTarget(VMToken):
+class Target(VMToken):
+    # pylint: disable=missing-docstring
+    pass
+
+class Redirect(VMToken):
+    # pylint: disable=missing-docstring
+    def __new__(cls, value, *, filepath=None, lineno=None):
+        if value is None:
+            return value
+        return super().__new__(cls, value, filepath=filepath, lineno=lineno)
+
+class IntendedTarget(VMToken):
+    pass
+
+# And the tokens. Inheritance defines, where the token can be used.
+
+class NamedVM(Source, Target, Redirect, IntendedTarget):
     # pylint: disable=missing-docstring
     def expand(self, *, system_info):
         '''An iterator over all valid domain names that this token would match
@@ -282,20 +298,6 @@ class _BaseTarget(VMToken):
         if self in system_info['domains']:
             yield IntendedTarget(self)
 
-class Target(_BaseTarget):
-    # pylint: disable=missing-docstring
-    pass
-
-class Redirect(_BaseTarget):
-    # pylint: disable=missing-docstring
-    def __new__(cls, value, *, filepath=None, lineno=None):
-        if value is None:
-            return value
-        return super().__new__(cls, value, filepath=filepath, lineno=lineno)
-
-# this method (with overloads in subclasses) was verify_target_value
-class IntendedTarget(VMToken):
-    # pylint: disable=missing-docstring
     def verify(self, *, system_info):
         '''Check if given value names valid target
 
@@ -312,17 +314,11 @@ class IntendedTarget(VMToken):
         Raises:
             qrexec.exc.AccessDenied: for failed verification
         '''
-        # for subclass it has to be overloaded
-        # pylint: disable=unidiomatic-typecheck
-        if type(self) != IntendedTarget:
-            raise NotImplementedError()
-
         if self not in system_info['domains']:
             raise AccessDenied('invalid target: {}'.format(str.__repr__(self)))
 
         return self
 
-# And the tokens. Inheritance defines, where the token can be used.
 
 class WildcardVM(Source, Target):
     # any, including AdminVM
