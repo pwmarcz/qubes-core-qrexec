@@ -155,20 +155,7 @@ def validate_service_and_argument(service, argument, *, filepath, lineno):
     return service, argument
 
 
-class VMTokenMeta(abc.ABCMeta):
-    # pylint: disable=missing-docstring
-    exacts = collections.OrderedDict()
-    prefixes = collections.OrderedDict()
-    def __init__(cls, name, bases, dict_):
-        super().__init__(name, bases, dict_)
-
-        assert not ('EXACT' in dict_ and 'PREFIX' in dict_)
-        if 'EXACT' in dict_:
-            cls.exacts[dict_['EXACT']] = cls
-        if 'PREFIX' in dict_:
-            cls.prefixes[dict_['PREFIX']] = cls
-
-class VMToken(str, metaclass=VMTokenMeta):
+class VMToken(str):
     '''A domain specification
 
     Wherever policy evaluation needs to represent a VM or a ``@something``
@@ -188,6 +175,22 @@ class VMToken(str, metaclass=VMTokenMeta):
     All tokens are also instances of :py:class:`str` and can be compared to
     other strings.
     '''
+
+    # Information for parser
+    exacts = {}
+    prefixes = {}
+
+    # Override to specify how to parse
+    EXACT = None
+    PREFIX = None
+
+    def __init_subclass__(cls):
+        assert not (cls.EXACT and cls.PREFIX)
+        if cls.EXACT:
+            cls.exacts[cls.EXACT] = cls
+        if cls.PREFIX:
+            cls.prefixes[cls.PREFIX] = cls
+
     def __new__(cls, token, *, filepath=None, lineno=None):
         orig_token = token
 
@@ -233,12 +236,9 @@ class VMToken(str, metaclass=VMTokenMeta):
         super().__init__()
         self.filepath = filepath
         self.lineno = lineno
-        try:
+        if self.PREFIX is not None:
             self.value = self[len(self.PREFIX):]
             assert self.value[0] != '@'
-        except AttributeError:
-            #self.value = self
-            pass
 
 #   def __repr__(self):
 #       return '<{} value={!r} filepath={} lineno={}>'.format(
