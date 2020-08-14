@@ -12,27 +12,18 @@ Representing domain names
 .. autoclass:: VMToken
    :members:
 
-.. autoclass:: Source
-   :members:
-.. autoclass:: Target
-   :members:
-.. autoclass:: Redirect
-   :members:
-.. autoclass:: IntendedTarget
-   :members:
+The classes should be instantiated using either :method:`VMToken.create()` or
+the context that expects the token.
 
-The classes should be instantiated using either :class:`VMToken` or the context
-that expects the token.
-
->>> type(VMToken('@adminvm'))
+>>> type(VMToken.create('@adminvm'))
 <class 'qrexec.policy.parser.AdminVM'>
->>> type(Target('@adminvm'))
+>>> type(VMToken.target('@adminvm'))
 <class 'qrexec.policy.parser.AdminVM'>
 
 The latter has the advantage that tokens inappropriate for the context are
 rejected:
 
->>> Redirect('@tag:tag1')
+>>> VMToken.redirect('@tag:tag1')
 Traceback (most recent call last):
 ...
 qrexec.exc.PolicySyntaxError: <unknown>:None: invalid redirect token: '@tag:tag1'

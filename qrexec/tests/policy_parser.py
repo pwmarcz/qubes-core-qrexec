@@ -111,183 +111,183 @@ class AsyncMock(unittest.mock.MagicMock):
 class TC_00_VMToken(unittest.TestCase):
     def test_010_Source(self):
 #       with self.assertRaises(exc.PolicySyntaxError):
-#           parser.Source(None)
-        parser.Source('test-vm1')
-        parser.Source('@adminvm')
-        parser.Source('dom0')
-        parser.Source('@anyvm')
-        parser.Source('*')
+#           parser.VMToken.source(None)
+        parser.VMToken.source('test-vm1')
+        parser.VMToken.source('@adminvm')
+        parser.VMToken.source('dom0')
+        parser.VMToken.source('@anyvm')
+        parser.VMToken.source('*')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@default')
-        parser.Source('@type:AppVM')
-        parser.Source('@tag:tag1')
+            parser.VMToken.source('@default')
+        parser.VMToken.source('@type:AppVM')
+        parser.VMToken.source('@tag:tag1')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@dispvm')
-        parser.Source('@dispvm:default-dvm')
-        parser.Source('@dispvm:@tag:tag3')
+            parser.VMToken.source('@dispvm')
+        parser.VMToken.source('@dispvm:default-dvm')
+        parser.VMToken.source('@dispvm:@tag:tag3')
 
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@invalid')
+            parser.VMToken.source('@invalid')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@dispvm:')
+            parser.VMToken.source('@dispvm:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@dispvm:@tag:')
+            parser.VMToken.source('@dispvm:@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@tag:')
+            parser.VMToken.source('@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Source('@type:')
+            parser.VMToken.source('@type:')
 
     def test_020_Target(self):
-        parser.Target('test-vm1')
-        parser.Target('@adminvm')
-        parser.Target('dom0')
-        parser.Target('@anyvm')
-        parser.Target('*')
-        parser.Target('@default')
-        parser.Target('@type:AppVM')
-        parser.Target('@tag:tag1')
-        parser.Target('@dispvm')
-        parser.Target('@dispvm:default-dvm')
-        parser.Target('@dispvm:@tag:tag3')
+        parser.VMToken.target('test-vm1')
+        parser.VMToken.target('@adminvm')
+        parser.VMToken.target('dom0')
+        parser.VMToken.target('@anyvm')
+        parser.VMToken.target('*')
+        parser.VMToken.target('@default')
+        parser.VMToken.target('@type:AppVM')
+        parser.VMToken.target('@tag:tag1')
+        parser.VMToken.target('@dispvm')
+        parser.VMToken.target('@dispvm:default-dvm')
+        parser.VMToken.target('@dispvm:@tag:tag3')
 
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Target('@invalid')
+            parser.VMToken.target('@invalid')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Target('@dispvm:')
+            parser.VMToken.target('@dispvm:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Target('@dispvm:@tag:')
+            parser.VMToken.target('@dispvm:@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Target('@tag:')
+            parser.VMToken.target('@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Target('@type:')
+            parser.VMToken.target('@type:')
 
     def test_021_Target_expand(self):
         self.assertCountEqual(
-            parser.Target('test-vm1').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('test-vm1').expand(system_info=SYSTEM_INFO),
             ['test-vm1'])
         self.assertCountEqual(
-            parser.Target('@adminvm').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@adminvm').expand(system_info=SYSTEM_INFO),
             ['@adminvm'])
         self.assertCountEqual(
-            parser.Target('dom0').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('dom0').expand(system_info=SYSTEM_INFO),
             ['@adminvm'])
         self.assertCountEqual(
-            parser.Target('@anyvm').expand(system_info=SYSTEM_INFO), [
+            parser.VMToken.target('@anyvm').expand(system_info=SYSTEM_INFO), [
                 'test-vm1', 'test-vm2', 'test-vm3',
                 '@dispvm:test-vm3',
                 'default-dvm', '@dispvm:default-dvm', 'test-invalid-dvm',
                 'test-no-dvm', 'test-template', 'test-standalone', '@dispvm'])
         self.assertCountEqual(
-            parser.Target('*').expand(system_info=SYSTEM_INFO), [
+            parser.VMToken.target('*').expand(system_info=SYSTEM_INFO), [
                 '@adminvm',
                 'test-vm1', 'test-vm2', 'test-vm3',
                 '@dispvm:test-vm3',
                 'default-dvm', '@dispvm:default-dvm', 'test-invalid-dvm',
                 'test-no-dvm', 'test-template', 'test-standalone', '@dispvm'])
         self.assertCountEqual(
-            parser.Target('@default').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@default').expand(system_info=SYSTEM_INFO),
             [])
         self.assertCountEqual(
-            parser.Target('@type:AppVM').expand(system_info=SYSTEM_INFO), [
+            parser.VMToken.target('@type:AppVM').expand(system_info=SYSTEM_INFO), [
                 'test-vm1', 'test-vm2', 'test-vm3',
                 'default-dvm', 'test-invalid-dvm', 'test-no-dvm'])
         self.assertCountEqual(
-            parser.Target('@type:TemplateVM').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@type:TemplateVM').expand(system_info=SYSTEM_INFO),
             ['test-template'])
         self.assertCountEqual(
-            parser.Target('@tag:tag1').expand(system_info=SYSTEM_INFO), [
+            parser.VMToken.target('@tag:tag1').expand(system_info=SYSTEM_INFO), [
                 'test-vm1', 'test-invalid-dvm',
                 'test-template', 'test-standalone', 'test-no-dvm'])
         self.assertCountEqual(
-            parser.Target('@tag:tag2').expand(system_info=SYSTEM_INFO), [
+            parser.VMToken.target('@tag:tag2').expand(system_info=SYSTEM_INFO), [
                 'test-vm1', 'test-vm2',
                 'test-invalid-dvm', 'test-template', 'test-standalone',
                 'test-no-dvm'])
         self.assertCountEqual(
-            parser.Target('@tag:no-such-tag').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@tag:no-such-tag').expand(system_info=SYSTEM_INFO),
             [])
         self.assertCountEqual(
-            parser.Target('@dispvm').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm').expand(system_info=SYSTEM_INFO),
             ['@dispvm'])
         self.assertCountEqual(
-            parser.Target('@dispvm:default-dvm').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm:default-dvm').expand(system_info=SYSTEM_INFO),
             ['@dispvm:default-dvm'])
 
         # no DispVM from test-vm1 allowed
         self.assertCountEqual(
-            parser.Target('@dispvm:test-vm1').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm:test-vm1').expand(system_info=SYSTEM_INFO),
             [])
 
         self.assertCountEqual(
-            parser.Target('@dispvm:test-vm3').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm:test-vm3').expand(system_info=SYSTEM_INFO),
             ['@dispvm:test-vm3'])
         self.assertCountEqual(
-            parser.Target('@dispvm:@tag:tag1').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm:@tag:tag1').expand(system_info=SYSTEM_INFO),
             [])
         self.assertCountEqual(
-            parser.Target('@dispvm:@tag:tag3').expand(system_info=SYSTEM_INFO),
+            parser.VMToken.target('@dispvm:@tag:tag3').expand(system_info=SYSTEM_INFO),
             ['@dispvm:test-vm3'])
 
     def test_030_Redirect(self):
-        self.assertIs(parser.Redirect(None), None)
+        self.assertIs(parser.VMToken.redirect(None), None)
 
-        parser.Redirect('test-vm1')
-        parser.Redirect('@adminvm')
-        parser.Redirect('dom0')
+        parser.VMToken.redirect('test-vm1')
+        parser.VMToken.redirect('@adminvm')
+        parser.VMToken.redirect('dom0')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@anyvm')
+            parser.VMToken.redirect('@anyvm')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('*')
+            parser.VMToken.redirect('*')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@default')
+            parser.VMToken.redirect('@default')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@type:AppVM')
+            parser.VMToken.redirect('@type:AppVM')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@tag:tag1')
-        parser.Redirect('@dispvm')
-        parser.Redirect('@dispvm:default-dvm')
+            parser.VMToken.redirect('@tag:tag1')
+        parser.VMToken.redirect('@dispvm')
+        parser.VMToken.redirect('@dispvm:default-dvm')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@dispvm:@tag:tag3')
+            parser.VMToken.redirect('@dispvm:@tag:tag3')
 
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@invalid')
+            parser.VMToken.redirect('@invalid')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@dispvm:')
+            parser.VMToken.redirect('@dispvm:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@dispvm:@tag:')
+            parser.VMToken.redirect('@dispvm:@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@tag:')
+            parser.VMToken.redirect('@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.Redirect('@type:')
+            parser.VMToken.redirect('@type:')
 
     def test_040_IntendedTarget(self):
-        parser.IntendedTarget('test-vm1')
-        parser.IntendedTarget('@adminvm')
-        parser.IntendedTarget('dom0')
+        parser.VMToken.intended_target('test-vm1')
+        parser.VMToken.intended_target('@adminvm')
+        parser.VMToken.intended_target('dom0')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@anyvm')
+            parser.VMToken.intended_target('*')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('*')
-        parser.IntendedTarget('@default')
+            parser.VMToken.intended_target('@anyvm')
+        parser.VMToken.intended_target('@default')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@type:AppVM')
+            parser.VMToken.intended_target('@type:AppVM')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@tag:tag1')
-        parser.IntendedTarget('@dispvm')
-        parser.IntendedTarget('@dispvm:default-dvm')
+            parser.VMToken.intended_target('@tag:tag1')
+        parser.VMToken.intended_target('@dispvm')
+        parser.VMToken.intended_target('@dispvm:default-dvm')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@dispvm:@tag:tag3')
+            parser.VMToken.intended_target('@dispvm:@tag:tag3')
 
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@invalid')
+            parser.VMToken.intended_target('@invalid')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@dispvm:')
+            parser.VMToken.intended_target('@dispvm:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@dispvm:@tag:')
+            parser.VMToken.intended_target('@dispvm:@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@tag:')
+            parser.VMToken.intended_target('@tag:')
         with self.assertRaises(exc.PolicySyntaxError):
-            parser.IntendedTarget('@type:')
+            parser.VMToken.intended_target('@type:')
 
     def test_100_match_single(self):
         # pytest: disable=no-self-use
@@ -333,8 +333,8 @@ class TC_00_VMToken(unittest.TestCase):
         ]
 
         for token, target, expected_result in cases:
-            match_result = parser.VMToken(token).match(
-                parser.IntendedTarget(target).verify(system_info=SYSTEM_INFO),
+            match_result = parser.VMToken.create(token).match(
+                parser.VMToken.intended_target(target).verify(system_info=SYSTEM_INFO),
                 system_info=SYSTEM_INFO)
             assert match_result == expected_result, \
                 '{} match {} should be {}'.format(token, target, expected_result)
@@ -355,7 +355,7 @@ class TC_00_VMToken(unittest.TestCase):
             with self.assertRaises(
                     exc.AccessDenied,
                     msg='{} should raise AccessDenied'.format(target)):
-                parser.IntendedTarget(target).verify(
+                parser.VMToken.intended_target(target).verify(
                     system_info=SYSTEM_INFO)
 
 

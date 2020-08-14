@@ -38,6 +38,9 @@ from typing import (
     List,
     TextIO,
     Tuple,
+    Dict,
+    Type,
+    Optional,
 )
 
 from .. import QREXEC_CLIENT, POLICYPATH, RPCNAME_ALLOWED_CHARSET, POLICYSUFFIX
@@ -155,7 +158,7 @@ def validate_service_and_argument(service, argument, *, filepath, lineno):
     return service, argument
 
 
-class VMToken(str):
+class VMToken(str, metaclass=abc.ABCMeta):
     '''A domain specification
 
     Wherever policy evaluation needs to represent a VM or a ``@something``
@@ -163,26 +166,32 @@ class VMToken(str):
     has its own dedicated class.
 
     There are 4 such contexts:
-        - :py:class:`Source`: for whatever was specified in policy in 3rd column
-        - :py:class:`Target`: 4th column in policy
-        - :py:class:`Redirect`: ``target=`` parameter to :py:class:`Allow` and
+        - ``source``: for whatever was specified in policy in 3rd column
+        - ``target``: 4th column in policy
+        - ``redirect``: ``target=`` parameter to :py:class:`Allow` and
           :py:class:`Ask`, and ``default_target=`` for the latter
-        - :py:class:`IntendedTarget`: for what **user** invoked the call for
+        - ``intended_target``: for what **user** invoked the call for
 
     Not all ``@tokens`` can be used everywhere. Where they can be used is
-    specified by inheritance.
+    specified by ``allow_*`` attributes.
 
     All tokens are also instances of :py:class:`str` and can be compared to
     other strings.
     '''
 
     # Information for parser
-    exacts = {}
-    prefixes = {}
+    exacts: Dict[str, Type[VMToken]] = {}
+    prefixes: Dict[str, Type[VMToken]] = {}
 
     # Override to specify how to parse
-    EXACT = None
-    PREFIX = None
+    EXACT: Optional[str] = None
+    PREFIX: Optional[str] = None
+
+    # Specify how the token can be used
+    allow_source = False
+    allow_target = False
+    allow_redirect = False
+    allow_intended_target = False
 
     def __init_subclass__(cls):
         assert not (cls.EXACT and cls.PREFIX)
@@ -191,7 +200,8 @@ class VMToken(str):
         if cls.PREFIX:
             cls.prefixes[cls.PREFIX] = cls
 
-    def __new__(cls, token, *, filepath=None, lineno=None):
+    @classmethod
+    def create(cls, token, *, context=None, filepath=None, lineno=None):
         orig_token = token
 
         # first, adjust some aliases
@@ -201,20 +211,18 @@ class VMToken(str):
 
         # if user specified just qube name, use it directly
         if not (token.startswith('@') or token == '*'):
-            return super().__new__(NamedVM, token)
+            return NamedVM(token)
 
         # token starts with @, we search for right subclass
         for exact, token_cls in cls.exacts.items():
-            if not issubclass(token_cls, cls):
-                # the class has to be our subclass, that's how we define which
-                # tokens can be used where
+            if context and not token_cls.allow_context(context):
                 continue
             if token == exact:
-                return super().__new__(token_cls, token)
+                return token_cls(token)
 
         # for prefixed tokens, we pass just suffixes
         for prefix, token_cls in cls.prefixes.items():
-            if not issubclass(token_cls, cls):
+            if context and not token_cls.allow_context(context):
                 continue
             if token.startswith(prefix):
                 value = token[len(prefix):]
@@ -225,11 +233,33 @@ class VMToken(str):
                     # we are either part of a longer prefix (@dispvm:@tag: etc),
                     # or the token is invalid, in which case this will fallthru
                     continue
-                return super().__new__(token_cls, token)
+                return token_cls(token)
 
         # the loop didn't find any valid prefix, so this is not a valid token
         raise PolicySyntaxError(filepath, lineno,
             'invalid {} token: {!r}'.format(cls.__name__.lower(), orig_token))
+
+    @classmethod
+    def allow_context(cls, context):
+        return getattr(cls, 'allow_' + context)
+
+    @classmethod
+    def source(cls, value, filepath=None, lineno=None):
+        return cls.create(value, filepath=filepath, lineno=lineno, context='source')
+
+    @classmethod
+    def target(cls, value, filepath=None, lineno=None):
+        return cls.create(value, filepath=filepath, lineno=lineno, context='target')
+
+    @classmethod
+    def redirect(cls, value, filepath=None, lineno=None):
+        if value is None:
+            return value
+        return cls.create(value, filepath=filepath, lineno=lineno, context='redirect')
+
+    @classmethod
+    def intended_target(cls, value, filepath=None, lineno=None):
+        return cls.create(value, filepath=filepath, lineno=lineno, context='intended_target')
 
     def __init__(self, token, *, filepath=None, lineno=None):
         # pylint: disable=unused-argument
@@ -250,6 +280,32 @@ class VMToken(str):
         # pylint: disable=unused-argument
         return self == other
 
+    @abc.abstractmethod
+    def expand(self, *, system_info):
+        '''An iterator over all valid domain names that this token would match
+
+        This is used as part of :py:meth:`Policy.collect_targets_for_ask()`.
+        '''
+        raise NotImplementedError()
+
+    def verify(self, *, system_info):
+        '''Check if given value names valid target
+
+        This function check if given value is not only syntactically correct,
+        but also if names valid service call target (existing domain, or valid
+        ``'@dispvm'`` like keyword)
+
+        Args:
+            system_info: information about the system
+
+        Returns:
+            VMToken: for successful verification
+
+        Raises:
+            qrexec.exc.AccessDenied: for failed verification
+        '''
+        raise NotImplementedError()
+
     def is_special_value(self):
         '''Check if the token specification is special (keyword) value
         '''
@@ -268,60 +324,30 @@ class VMToken(str):
         '''Text of the token, without possibly '@' prefix '''
         return self.lstrip('@')
 
-class Source(VMToken):
-    # pylint: disable=missing-docstring
-    pass
-
-class Target(VMToken):
-    # pylint: disable=missing-docstring
-    pass
-
-class Redirect(VMToken):
-    # pylint: disable=missing-docstring
-    def __new__(cls, value, *, filepath=None, lineno=None):
-        if value is None:
-            return value
-        return super().__new__(cls, value, filepath=filepath, lineno=lineno)
-
-class IntendedTarget(VMToken):
-    pass
-
 # And the tokens. Inheritance defines, where the token can be used.
 
-class NamedVM(Source, Target, Redirect, IntendedTarget):
+class NamedVM(VMToken):
+    allow_source = True
+    allow_target = True
+    allow_redirect = True
+    allow_intended_target = True
+
     # pylint: disable=missing-docstring
     def expand(self, *, system_info):
-        '''An iterator over all valid domain names that this token would match
-
-        This is used as part of :py:meth:`Policy.collect_targets_for_ask()`.
-        '''
         if self in system_info['domains']:
-            yield IntendedTarget(self)
+            yield NamedVM(self)
 
     def verify(self, *, system_info):
-        '''Check if given value names valid target
-
-        This function check if given value is not only syntactically correct,
-        but also if names valid service call target (existing domain, or valid
-        ``'@dispvm'`` like keyword)
-
-        Args:
-            system_info: information about the system
-
-        Returns:
-            VMToken: for successful verification
-
-        Raises:
-            qrexec.exc.AccessDenied: for failed verification
-        '''
         if self not in system_info['domains']:
             raise AccessDenied('invalid target: {}'.format(str.__repr__(self)))
 
         return self
 
 
-class WildcardVM(Source, Target):
+class WildcardVM(VMToken):
     # any, including AdminVM
+    allow_source = True
+    allow_target = True
 
     # pylint: disable=missing-docstring,unused-argument
     EXACT = '*'
@@ -330,12 +356,17 @@ class WildcardVM(Source, Target):
 
     def expand(self, *, system_info):
         for name, domain in system_info['domains'].items():
-            yield IntendedTarget(name)
+            yield VMToken.intended_target(name)
             if domain['template_for_dispvms']:
                 yield DispVMTemplate('@dispvm:' + name)
         yield DispVM('@dispvm')
 
-class AdminVM(Source, Target, Redirect, IntendedTarget):
+class AdminVM(VMToken):
+    allow_source = True
+    allow_target = True
+    allow_redirect = True
+    allow_intended_target = True
+
     # no Source, for calls originating from AdminVM policy is not evaluated
     # pylint: disable=missing-docstring,unused-argument
     EXACT = '@adminvm'
@@ -344,7 +375,10 @@ class AdminVM(Source, Target, Redirect, IntendedTarget):
     def verify(self, *, system_info):
         return self
 
-class AnyVM(Source, Target):
+class AnyVM(VMToken):
+    allow_source = True
+    allow_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     EXACT = '@anyvm'
     def match(self, other, *, system_info, source=None):
@@ -352,12 +386,15 @@ class AnyVM(Source, Target):
     def expand(self, *, system_info):
         for name, domain in system_info['domains'].items():
             if domain['type'] != 'AdminVM':
-                yield IntendedTarget(name)
+                yield NamedVM(name)
             if domain['template_for_dispvms']:
                 yield DispVMTemplate('@dispvm:' + name)
         yield DispVM('@dispvm')
 
-class DefaultVM(Target, IntendedTarget):
+class DefaultVM(VMToken):
+    allow_target = True
+    allow_intended_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     EXACT = '@default'
     def expand(self, *, system_info):
@@ -365,7 +402,10 @@ class DefaultVM(Target, IntendedTarget):
     def verify(self, *, system_info):
         return self
 
-class TypeVM(Source, Target):
+class TypeVM(VMToken):
+    allow_source = True
+    allow_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     PREFIX = '@type:'
     def match(self, other, *, system_info, source=None):
@@ -374,9 +414,12 @@ class TypeVM(Source, Target):
     def expand(self, *, system_info):
         for name, domain in system_info['domains'].items():
             if domain['type'] == self.value:
-                yield IntendedTarget(name)
+                yield NamedVM(name)
 
-class TagVM(Source, Target):
+class TagVM(VMToken):
+    allow_source = True
+    allow_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     PREFIX = '@tag:'
     def match(self, other, *, system_info, source=None):
@@ -385,9 +428,13 @@ class TagVM(Source, Target):
     def expand(self, *, system_info):
         for name, domain in system_info['domains'].items():
             if self.value in domain['tags']:
-                yield IntendedTarget(name)
+                yield NamedVM(name)
 
-class DispVM(Target, Redirect, IntendedTarget):
+class DispVM(VMToken):
+    allow_target = True
+    allow_redirect = True
+    allow_intended_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     EXACT = '@dispvm'
     def match(self, other, *, system_info, source=None):
@@ -406,7 +453,12 @@ class DispVM(Target, Redirect, IntendedTarget):
         return DispVMTemplate(
             '@dispvm:' + system_info['domains'][source]['default_dispvm'])
 
-class DispVMTemplate(Source, Target, Redirect, IntendedTarget):
+class DispVMTemplate(VMToken):
+    allow_source = True
+    allow_target = True
+    allow_redirect = True
+    allow_intended_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     PREFIX = '@dispvm:'
     def match(self, other, *, system_info, source=None):
@@ -427,7 +479,10 @@ class DispVMTemplate(Source, Target, Redirect, IntendedTarget):
                 'not a template for dispvm: {}'.format(self.value))
         return self
 
-class DispVMTag(Source, Target):
+class DispVMTag(VMToken):
+    allow_source = True
+    allow_target = True
+
     # pylint: disable=missing-docstring,unused-argument
     PREFIX = '@dispvm:@tag:'
     def match(self, other, *, system_info, source=None):
@@ -551,7 +606,7 @@ class AllowResolution(AbstractResolution):
         dispvm_name = utils.qubesd_call(base_appvm, 'admin.vm.CreateDisposable')
         dispvm_name = dispvm_name.decode('ascii')
         utils.qubesd_call(dispvm_name, 'admin.vm.Start')
-        return IntendedTarget(dispvm_name)
+        return NamedVM(dispvm_name)
 
     def ensure_target_running(self):
         '''
@@ -693,7 +748,7 @@ class Request:
         #: source qube name
         self.source = source
         #: target (qube or token) as requested by source qube
-        self.target = IntendedTarget(target).verify(system_info=system_info)
+        self.target = VMToken.intended_target(target).verify(system_info=system_info)
 
         #: system info
         self.system_info = system_info
@@ -750,7 +805,7 @@ class ActionType(metaclass=abc.ABCMeta):
             IntendedTarget: either :py:attr:`target`, if not None, or
                 *intended_target*
         '''
-        return IntendedTarget(self.target or intended_target)
+        return VMToken.intended_target(self.target or intended_target)
 
     @staticmethod
     def allow_no_autostart(target, system_info):
@@ -793,7 +848,7 @@ class Allow(ActionType):
     # pylint: disable=missing-docstring
     def __init__(self, *args, target=None, user=None, notify=None, autostart=None, **kwds):
         super().__init__(*args, **kwds)
-        self.target = Redirect(target,
+        self.target = VMToken.redirect(target,
             filepath=self.rule.filepath, lineno=self.rule.lineno)
         self.user = user
         self.notify = False if notify is None else notify
@@ -843,9 +898,9 @@ class Ask(ActionType):
     def __init__(self, *args, target=None, default_target=None, user=None,
                  notify=None, autostart=None, **kwds):
         super().__init__(*args, **kwds)
-        self.target = Redirect(target,
+        self.target = VMToken.redirect(target,
             filepath=self.rule.filepath, lineno=self.rule.lineno)
-        self.default_target = Redirect(default_target,
+        self.default_target = VMToken.redirect(default_target,
             filepath=self.rule.filepath, lineno=self.rule.lineno)
         self.user = user
         self.notify = False if notify is None else notify
@@ -921,9 +976,9 @@ class Rule:
         #: the argument to the service
         self.argument = argument
         #: source specification
-        self.source = Source(source, filepath=filepath, lineno=lineno)
+        self.source = VMToken.source(source, filepath=filepath, lineno=lineno)
         #: target specification
-        self.target = Target(target, filepath=filepath, lineno=lineno)
+        self.target = VMToken.target(target, filepath=filepath, lineno=lineno)
 
         try:
             actiontype = Action[action].value
