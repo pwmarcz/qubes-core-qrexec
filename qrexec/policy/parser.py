@@ -41,6 +41,7 @@ from typing import (
     Dict,
     Type,
     Optional,
+    Set
 )
 
 from .. import QREXEC_CLIENT, POLICYPATH, RPCNAME_ALLOWED_CHARSET, POLICYSUFFIX
@@ -180,8 +181,8 @@ class VMToken(str, metaclass=abc.ABCMeta):
     '''
 
     # Information for parser
-    exacts: Dict[str, Type[VMToken]] = {}
-    prefixes: Dict[str, Type[VMToken]] = {}
+    exacts: Dict[str, Type['VMToken']] = {}
+    prefixes: Dict[str, Type['VMToken']] = {}
 
     # Override to specify how to parse
     EXACT: Optional[str] = None
@@ -1331,7 +1332,7 @@ class AbstractPolicy(AbstractParser):
         Word 'targets' is used intentionally instead of 'domains', because it
         can also contains @dispvm like keywords.
         '''
-        targets = set()
+        targets: Set[str] = set()
 
         # iterate over rules in reversed order to easier handle 'deny'
         # actions - simply remove matching domains from allowed set
@@ -1389,28 +1390,28 @@ class AbstractFileLoader(AbstractParser):
         Raises:
             qrexec.exc.PolicySyntaxError: when the path does not point to a file
         '''
-        included_path = self.resolve_path(included_path)
-        if not included_path.is_file():
+        resolved_path = self.resolve_path(included_path)
+        if not resolved_path.is_file():
             raise exc.PolicySyntaxError(filepath, lineno,
-                'not a file: {}'.format(included_path))
-        return open(str(included_path)), included_path
+                'not a file: {}'.format(resolved_path))
+        return open(str(included_path)), resolved_path
 
     def handle_include(self, included_path: pathlib.PurePosixPath, *,
             filepath, lineno):
-        file, included_path = self.resolve_filepath(included_path,
+        file, resolved_path = self.resolve_filepath(included_path,
             filepath=filepath, lineno=lineno)
         with file:
-            self.load_policy_file(file, pathlib.PurePosixPath(included_path))
+            self.load_policy_file(file, pathlib.PurePosixPath(resolved_path))
 
     def handle_include_service(self, service, argument,
             included_path: pathlib.PurePosixPath, *, filepath, lineno):
         service, argument = validate_service_and_argument(
             service, argument, filepath=filepath, lineno=lineno)
-        file, included_path = self.resolve_filepath(included_path,
+        file, resolved_path = self.resolve_filepath(included_path,
             filepath=filepath, lineno=lineno)
         with file:
             self.load_policy_file_service(
-                service, argument, file, pathlib.PurePosixPath(included_path))
+                service, argument, file, pathlib.PurePosixPath(resolved_path))
 
 
 class AbstractDirectoryLoader(AbstractFileLoader):
@@ -1426,17 +1427,17 @@ class AbstractDirectoryLoader(AbstractFileLoader):
             qrexec.exc.PolicySyntaxError: when the path does not point to
                 a directory
         '''
-        included_path = self.resolve_path(included_path)
-        if not included_path.is_dir():
+        resolved_path = self.resolve_path(included_path)
+        if not resolved_path.is_dir():
             raise exc.PolicySyntaxError(filepath, lineno,
                 'not a directory: {}'.format(included_path))
-        return included_path
+        return resolved_path
 
     def handle_include_dir(self, included_path: pathlib.PurePosixPath, *,
             filepath, lineno):
-        included_path = self.resolve_dirpath(included_path,
+        resolved_path = self.resolve_dirpath(included_path,
             filepath=filepath, lineno=lineno)
-        self.load_policy_dir(included_path)
+        self.load_policy_dir(resolved_path)
 
     def load_policy_dir(self, dirpath):
         '''Load all files in the directory (``!include-dir``)
@@ -1502,25 +1503,25 @@ class ValidateIncludesParser(AbstractParser):
     def handle_include(self, included_path: pathlib.PurePosixPath, *,
             filepath, lineno):
         # TODO disallow anything other that @include:[include/]<file>
-        included_path = (filepath.resolve().parent / included_path).resolve()
-        if not included_path.is_file():
+        resolved_path = (filepath.resolve().parent / included_path).resolve()
+        if not resolved_path.is_file():
             raise PolicySyntaxError(filepath, lineno,
-                'included path {!s} does not exist'.format(included_path))
+                'included path {!s} does not exist'.format(resolved_path))
 
     def handle_include_service(self, service, argument,
             included_path: pathlib.PurePosixPath, *, filepath, lineno):
         # TODO disallow anything other that @include:[include/]<file>
-        included_path = (filepath.resolve().parent / included_path).resolve()
-        if not included_path.is_file():
+        resolved_path = (filepath.resolve().parent / included_path).resolve()
+        if not resolved_path.is_file():
             raise PolicySyntaxError(filepath, lineno,
-                'included path {!s} does not exist'.format(included_path))
+                'included path {!s} does not exist'.format(resolved_path))
 
     def handle_include_dir(self, included_path: pathlib.PurePosixPath, *,
             filepath, lineno):
-        included_path = (filepath.resolve().parent / included_path).resolve()
-        if not included_path.is_dir():
+        resolved_path = (filepath.resolve().parent / included_path).resolve()
+        if not resolved_path.is_dir():
             raise PolicySyntaxError(filepath, lineno,
-                'included path {!s} does not exist'.format(included_path))
+                'included path {!s} does not exist'.format(resolved_path))
 
     def handle_rule(self, rule, *, filepath, lineno):
         pass
