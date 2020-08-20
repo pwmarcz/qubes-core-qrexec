@@ -27,6 +27,7 @@ import itertools
 import os
 import argparse
 import asyncio
+import json
 
 import pkg_resources
 
@@ -495,12 +496,17 @@ class PolicyAgent(SocketService):
         self._app.set_application_id('qubes.qrexec-policy-agent')
         self._app.register()
 
-    async def handle_request(self, params, service, source_domain):
+    async def handle_request(self, payload, service, source_domain):
+        params = json.loads(payload)
+
         if service == 'policy.Ask':
-            return await self.handle_ask(params)
-        if service == 'policy.Notify':
-            return await self.handle_notify(params)
-        raise Exception('unknown service name: {}'.format(service))
+            response = await self.handle_ask(params)
+        elif service == 'policy.Notify':
+            response = await self.handle_notify(params)
+        else:
+            raise Exception('unknown service name: {}'.format(service))
+
+        return response.encode('ascii')
 
     async def handle_ask(self, params):
         source = params['source']

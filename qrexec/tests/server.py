@@ -21,8 +21,6 @@ import tempfile
 import shutil
 import os
 import asyncio
-import socket
-from unittest import mock
 
 import pytest
 
@@ -33,12 +31,13 @@ from ..server import SocketService, call_socket_service_local
 
 
 class TestService(SocketService):
-    async def handle_request(self, params, service, source_domain):
+    async def handle_request(self, payload, service, source_domain):
+        params = json.loads(payload)
         return json.dumps({
             'params': params,
             'service': service,
             'source_domain': source_domain
-        })
+        }).encode()
 
 
 @pytest.fixture
@@ -85,7 +84,8 @@ async def test_call_socket_service_local(temp_dir, server):
     for i in range(2):
         response = await call_socket_service_local(
             'Service', 'source',
-            {'request': i}, rpc_path=temp_dir)
+            json.dumps({'request': i}).encode(),
+            rpc_path=temp_dir)
         assert json.loads(response) == {
             'params': {'request': i},
             'service': 'Service',

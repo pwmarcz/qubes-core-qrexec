@@ -20,16 +20,12 @@
 A client and server for socket-based QubesRPC (currently used for
 qrexec-policy-agent).
 
-The request (intended to be dom0 -> VM) is JSON-encoded, response is plain
-ASCII text.
-
 Currently disregards the target specification part of the request.
 '''
 
 import os
 import os.path
 import asyncio
-import json
 
 from . import RPC_PATH
 from .client import call_async
@@ -52,50 +48,49 @@ class SocketService:
     async def _client_connected(self, reader, writer):
         try:
             data = await reader.read()
-            data = data.decode('ascii')
-            assert '\0' in data, data
-            header, json_data = data.split('\0', 1)
+            assert b'\0' in data, data
+            header, payload = data.split(b'\0', 1)
 
             # Note that we process only the first two parts (service and
             # source_domain) and disregard the second two parts (target
             # specification) that appear when we're running in dom0.
-            header_parts = header.split(' ')
+            header_parts = header.decode('ascii').split(' ')
             assert len(header_parts) >= 2, header
             service = header_parts[0]
             source_domain = header_parts[1]
 
-            params = json.loads(json_data)
+            response = await self.handle_request(payload, service, source_domain)
 
-            response = await self.handle_request(params, service, source_domain)
-
-            writer.write(response.encode('ascii'))
+            writer.write(response)
             await writer.drain()
         finally:
             writer.close()
             await writer.wait_closed()
 
-    async def handle_request(self, params, service, source_domain):
+    async def handle_request(
+            self,
+            payload: bytes,
+            service: str,
+            source_domain: str) -> bytes:
         raise NotImplementedError()
 
 
 def call_socket_service(
-        remote_domain, service, source_domain, params,
-        rpc_path=RPC_PATH):
+        remote_domain, service, source_domain, payload: bytes,
+        rpc_path=RPC_PATH) -> bytes:
     '''
     Call a socket service, either over qrexec or locally.
-
-    The request is JSON-encoded, response is plain ASCII text.
     '''
 
     if remote_domain == source_domain:
         return call_socket_service_local(
-            service, source_domain, params, rpc_path)
+            service, source_domain, payload, rpc_path)
     return call_socket_service_remote(
-        remote_domain, service, params)
+        remote_domain, service, payload)
 
 
-async def call_socket_service_local(service, source_domain, params,
-                                    rpc_path=RPC_PATH):
+async def call_socket_service_local(service, source_domain, payload: bytes,
+                                    rpc_path=RPC_PATH) -> bytes:
     if source_domain == 'dom0':
         header = '{} dom0 name dom0\0'.format(service).encode('ascii')
     else:
@@ -104,14 +99,14 @@ async def call_socket_service_local(service, source_domain, params,
     path = os.path.join(rpc_path, service)
     reader, writer = await asyncio.open_unix_connection(path)
     writer.write(header)
-    writer.write(json.dumps(params).encode('ascii'))
+    writer.write(payload)
     writer.write_eof()
     await writer.drain()
     response = await reader.read()
-    return response.decode('ascii')
+    return response
 
 
-async def call_socket_service_remote(remote_domain, service, params):
-    input_data = json.dumps(params)
-    output_data = await call_async(remote_domain, service, input=input_data)
+async def call_socket_service_remote(
+        remote_domain, service, payload: bytes) -> bytes:
+    output_data = await call_async(remote_domain, service, input=payload)
     return output_data
