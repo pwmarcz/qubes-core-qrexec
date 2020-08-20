@@ -42,6 +42,7 @@ POLICYSOCKET = pathlib.Path('/var/run/qubes/policy.sock')
 INCLUDEPATH = POLICYPATH / 'include'
 POLICYSUFFIX = '.policy'
 POLICYPATH_OLD = pathlib.Path('/etc/qubes-rpc/policy')
+POLICY_ADMIN_SOCKET_PATH = '/var/run/qubes/policy-admin.sock'
 
 RPCNAME_ALLOWED_CHARSET = frozenset(
     string.ascii_uppercase + string.ascii_lowercase + string.digits + '+-._')
